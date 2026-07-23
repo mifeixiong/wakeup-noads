@@ -1,0 +1,35 @@
+# Original proprietary package and local reverse-engineering workspace
+/base.apk
+/apk_work/
+/work/
+*.apk
+*.apks
+*.aab
+
+# Android signing material and generated signatures
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.idsig
+
+# Local credentials and environment files
+.env
+.env.*
+*.secret
+*.secrets
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+Thumbs.db
+.DS_Store
+
+# IDE metadata
+.idea/
+.vscode/
+*.iml
