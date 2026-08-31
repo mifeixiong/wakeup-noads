@@ -5,7 +5,8 @@ param(
 
 $androidNs = 'http://schemas.android.com/apk/res/android'
 
-# WakeUp 6.2.05 baseline. Review these rules against every new APK before use.
+# Known ad-component candidates. Revalidate the namespace rule against each new
+# Manifest before reuse and record any additions in that version's report.
 $adComponentPattern = '^com\.(?:fastad|kwad|qq\.e|byazt|bytedance\.sdk\.openadsdk|bytedance\.msdk|bytedance\.android\.openliveplugin|byted\.live\.lite|baidu\.mobads|baidu\.oauth\.sdkbqt|component\.patchad)(?:\.|\$)'
 $explicitAdComponents = @(
     'com.suda.yzune.wakeupschedule.aaa.resume.ResumeSplashActivity',

@@ -2,8 +2,7 @@
 
 本文档用于在 WakeUp 课程表发布新版本后，快速重新完成去广告、移除学习/账户/云同步模块，并保留高校教务系统课表导入与本地课表功能。
 
-最后更新：2026-07-23  
-参考基线：WakeUp `6.2.05`（versionCode `485`）
+本文只记录跨版本的迁移步骤和验收规则，不绑定某个上游版本。每次官方发布新版本，都必须建立独立的 `work/<version>/` 目录并重新审查；具体版本的类名、哈希、补丁映射和验收输出只写入 [RELEASE_RECORDS.md](./RELEASE_RECORDS.md) 及对应版本报告。
 
 > [!IMPORTANT]
 > 新版本的 DEX、混淆类名、方法名、寄存器和资源 ID 都可能变化。迁移时应按业务语义和调用链重新定位，不能直接照抄旧版行号、标签或 Smali 寄存器。
@@ -43,10 +42,13 @@
 8. 短路账户、用户资料、会员和登录 Action。
 9. 短路课表与日历云同步入口。
 10. 隐藏“我的”页相关控件并复核状态栏安全间距。
-11. apktool 重建、zipalign 对齐、apksigner 签名。
-12. 二次反编译最终签名 APK，执行静态验收。
-13. 在真机完成启动、本地课表和高校导入回归测试。
-14. 更新 README、Release Notes、哈希与维护报告。
+11. 审查软件更新提醒、自动检查、服务端强制更新、更新弹窗及手动版本检查链路。
+12. apktool 重建、zipalign 对齐、apksigner 签名。
+13. 二次反编译最终签名 APK，执行静态验收。
+14. 在真机完成启动、本地课表和高校导入回归测试。
+15. 更新 Release Notes、`RELEASE_RECORDS.md`、哈希与逐版本维护报告；只有跨版本规则发生变化时才修改 README 或本手册。
+
+每一版都要在报告中明确四个交付物：修改后的 APK、相邻版本差异文件、包含字面输出和退出状态的 `VERIFICATION.txt`，以及可执行并经过独立副本测试的 `ROLLBACK.sh`。最终报告必须引用实际生成的文件路径和最终 SHA-256。
 
 ## 3. 工具与目录
 
@@ -64,6 +66,8 @@
 | ripgrep | 当前系统版本 | 快速检索类名、字符串和调用点 | [BurntSushi/ripgrep Releases](https://github.com/BurntSushi/ripgrep/releases) |
 
 工具来源、下载校验和清理路径记录在 `apk_work/TOOL_INSTALLS.md`。
+
+表中版本是可复现参考值；实际执行可能使用已安装的兼容 Build Tools。每个版本报告必须记录实际 `apktool`、`zipalign`、`apksigner`、JDK 和 ADB 版本，不能只写“验证通过”。
 
 ### 建议目录
 
@@ -83,6 +87,8 @@ work/<version>/
 ```
 
 不要复用上一版本的 `decoded/build` 缓存作为新版本输入。
+
+仓库根目录的 `RELEASE_RECORDS.md` 保存可公开的版本索引；`work/<version>/reports/` 保存逐版本证据，默认不提交原始 APK、反编译目录、签名材料和本地数据。
 
 ## 4. 建立新版基线
 
@@ -107,7 +113,7 @@ New-Item -ItemType Directory -Force -Path $WakeupOutput, $WakeupReports | Out-Nu
 Get-FileHash -Algorithm SHA256 -LiteralPath $WakeupInputApk
 ```
 
-把哈希、文件大小、获取来源和日期写入本版本报告。
+把哈希、文件大小、获取来源、下载日期、官方版本号、原始证书摘要和校验命令写入本版本报告。
 
 ### 4.2 解码两份 apktool 工程
 
@@ -172,27 +178,17 @@ rg -n 'COLD_SPLASH_AD|HOT_SPLASH_AD|SCHEDULE_INSERT_AD|SCHEDULE_STREAM_AD|ADET_N
 rg -n 'coldSplash|hotSplash|scheduleInsert|scheduleStream|flowAd' $WakeupJadx
 ```
 
-6.2.05 参考类：
+不要把历史报告中的混淆类名、方法名或资源 ID 当作新版接口。对每个候选点记录其语义、参数、返回类型、调用者和可达路径，再决定是否处理。
 
-```text
-com.suda.yzune.wakeupschedule.aaa.utils.OooOOOO
-```
+按语义确认目标返回值：
 
-6.2.05 参考映射：
+| 业务语义 | 目标返回 |
+| --- | --- |
+| 广告展示判断 | `false` |
+| 广告资源或广告位 ID | `0` 或无效值 |
+| 远端广告配置刷新 | 立即 `return-void` |
 
-| 方法 | 语义 | 目标返回 |
-| --- | --- | --- |
-| `OooO00o()` | 热启动广告是否展示 | `false` |
-| `OooO0O0()` | 课表插屏是否展示 | `false` |
-| `OooO0OO()` | 冷启动广告是否展示 | `false` |
-| `OooO0Oo()` | 拉取远端广告配置 | 立即 `return-void` |
-| `OooO0o()` | 冷启动广告资源 ID | `0` |
-| `OooO0o0()` | 热启动广告资源 ID | `0` |
-| `OooO0oO()` | 插屏广告 ID | `0` |
-| `OooO()` | 信息流广告 ID | `0` |
-| `OooO0oo()` | 最终信息流广告位 | `-1` |
-
-新版中方法名可能变化，应通过读取的 Preference、埋点字符串和返回类型确认。
+具体方法名和返回值必须写入对应版本报告，不写入本通用手册。
 
 常用 Smali 返回模板：
 
@@ -220,16 +216,10 @@ return-void
 检索：
 
 ```powershell
-rg -n 'ResumeSplashActivity' $WakeupJadx $WakeupDecoded
+rg -n -i 'resume|splash|startup|launch|ad' $WakeupJadx $WakeupDecoded
 ```
 
-6.2.05 中：
-
-```text
-com.suda.yzune.wakeupschedule.aaa.resume.ResumeSplashActivity
-```
-
-其广告加载方法 `o0Oo0oo()` 被处理为立即调用页面结束方法后返回。新版应确认真正的广告加载入口，避免只禁用回调而留下空白页。
+确认真正的热启动广告 Activity 和加载入口，将页面关闭或入口短路。不要只禁用回调而留下空白页；具体类名和方法名写入版本报告。
 
 同时在 Manifest 将该 Activity 设置为：
 
@@ -253,23 +243,9 @@ scripts/disable_ad_components.ps1
   | Set-Content -Encoding utf8 (Join-Path $WakeupReports 'manifest_patch_report.json')
 ```
 
-脚本中的厂商、组件和权限清单以 6.2.05 为基线。对新版执行前先阅读脚本并逐项复核；执行后必须检查生成的 JSON 报告和 Manifest 差异。
+脚本中的厂商、组件和权限清单只是已知候选，不是完整清单。对新版执行前先阅读脚本并逐项复核，先从新版 Manifest 和调用链识别新增项，再扩充规则；执行后必须检查生成的 JSON 报告和 Manifest 差异。
 
-脚本当前匹配的主要命名空间包括：
-
-- `com.fastad`
-- `com.kwad`
-- `com.qq.e`
-- `com.byazt`
-- `com.bytedance.sdk.openadsdk`
-- `com.bytedance.msdk`
-- `com.bytedance.android.openliveplugin`
-- `com.byted.live.lite`
-- `com.baidu.mobads`
-- `com.baidu.oauth.sdkbqt`
-- `com.component.patchad`
-
-6.2.05 的结果是 149 个组件、12 条权限声明和 1 条元数据。这个数字仅是参考：
+每版统计数字只写入对应报告，不写入本通用手册：
 
 - 数量减少时，检查广告 SDK 是否改名或移除。
 - 数量增加时，逐项确认没有误伤登录、导入、文件分享或系统服务。
@@ -283,20 +259,15 @@ scripts/disable_ad_components.ps1
 检索稳定标签和类路径：
 
 ```powershell
-rg -n 'aaa/learn|AssistantFragment|const-string.*"learn"|const-string.*"assistant"' $WakeupDecoded -g 'ScheduleActivity.smali'
-rg -n '学习|表助手|搜题' $WakeupJadx
+rg -n -i 'learn|study|assistant|question|学习|助手|搜题' $WakeupDecoded $WakeupJadx
 ```
 
-6.2.05 的入口位于：
+在新版实际的课表 Activity 中定位学习、搜题和助手底栏构造逻辑。具体文件、类名和标签写入对应版本报告。
 
-```text
-smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleActivity.smali
-```
+需整体移除与这些功能对应的底栏构造逻辑：
 
-需删除两段底栏构造逻辑：
-
-1. 条件创建 `aaa/learn/AssistantFragment`，标签为 `assistant`。
-2. 创建 `aaa/learn/Oooo000`，标签为 `learn`。
+1. 学习/助手 Fragment 的实例化和构造调用。
+2. 对应的 tab model、列表加入和专属埋点调用。
 
 每段应整体移除：
 
@@ -307,38 +278,25 @@ smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleActivity.smali
 
 删除后检查所有 `:cond_*` 和 `:goto_*` 仍有定义。不要只删 `ArrayList.add` 而保留 Fragment 初始化，否则仍可能触发学习模块联网和初始化。
 
-最终验收要求 `ScheduleActivity` 中以下引用均为零：
-
-```text
-AssistantFragment
-aaa/learn
-"learn"
-"assistant"
-```
+最终验收要求课表底栏不再引用学习、搜题或助手功能；实际类名和检索词写入版本报告。
 
 ## 8. 关闭应用账户与会员
 
 ### 8.1 账户状态工具
 
-稳定检索词：
+按业务语义检索账户状态和用户资料：
 
 ```powershell
-rg -n 'ACCOUNT_DXUSS|ACCOUNT_USER_INFO|Saas_submit_logout|USER_GRADE_ID' $WakeupJadx
+rg -n -i 'account|user.?info|token|login|logout|member|grade|school' $WakeupJadx
 ```
 
-6.2.05 参考类：
+对负责账户状态的新版工具类按返回类型和调用者确认处理：
 
-```text
-com.suda.yzune.wakeupschedule.aaa.utils.o00O0000
-```
-
-参考处理：
-
-| 方法 | 语义 | 目标返回 |
-| --- | --- | --- |
-| `OooO0OO()` | 读取账户令牌 | 空字符串 |
-| `OooO0oO()` | 读取 `UserInfo` | `null` |
-| `OooOO0()` | 是否已登录 | `false` |
+| 业务语义 | 目标返回 |
+| --- | --- |
+| 读取账户令牌 | 空字符串 |
+| 读取用户资料 | `null` |
+| 登录状态判断 | `false` |
 
 Smali 模板：
 
@@ -354,79 +312,31 @@ return-object v0
 
 ### 8.2 自动登录和资料刷新
 
-6.2.05 参考类：
-
-```text
-com.suda.yzune.wakeupschedule.aaa.utils.o000OOo0
-```
-
-将自动拉取用户资料、自动补全学校/年级等联网入口处理为立即返回。新版通过 `Userupdate`、`Info`、`UserInfo`、`gradeId`、`schoolId` 和网络回调定位。
+将自动拉取用户资料、自动补全学校/年级等联网入口处理为立即返回。通过 `Userupdate`、`Info`、`UserInfo`、`gradeId`、`schoolId` 和网络回调定位，具体类名写入版本报告。
 
 ### 8.3 Hybrid Action
 
-6.2.05 参考类：
-
-```text
-aaa/actions/OooO0o.smali              # logout
-aaa/actions/OooOOOO.smali             # cancelAccount
-aaa/actions/SetGradeInfoAction.smali
-aaa/actions/ShowLoginAction.smali
-aaa/actions/UpdateUserInfoAction.smali
-```
-
-对应 `onPluginAction` 或实际 Action 入口立即 `return-void`。新版应从 `WakeupPlugin` 的方法注册和 Action 调用链反查，不依赖上述混淆文件名。
+对 `onPluginAction` 或实际 Action 入口按注册名、参数类型和调用链确认，再决定是否立即 `return-void`。不要依赖历史报告中的混淆文件名。
 
 ### 8.4 Manifest Activity
 
-以下 Activity 设为 `android:enabled="false"`，并在存在导出属性时设置 `android:exported="false"`：
-
-```text
-com.suda.yzune.wakeupschedule.aaa.activity.login.SYLoginActivity
-com.suda.yzune.wakeupschedule.aaa.activity.login.LoginActivity
-com.suda.yzune.wakeupschedule.aaa.activity.login.VerificationCodeLoginActivity
-com.suda.yzune.wakeupschedule.mine.VipExclusiveActivity
-```
+逐项列出新版 Manifest 中负责账户、登录和会员的 Activity，确认非核心入口后设置 `android:enabled="false"`；在存在导出属性时同时设置 `android:exported="false"`。具体组件名写入版本报告，不能按历史清单批量禁用。
 
 ## 9. 关闭课表与日历云同步
 
-优先通过 Kotlin 协程类名和网络模型定位：
+优先通过 Kotlin 协程、网络模型和同步语义定位：
 
 ```powershell
-rg -n 'preOptimizeLogin|syncSingleSchedule|synchronizeSchedule|getScheduleFromServer' $WakeupJadx
-rg -n 'selectScheduleOnServer|synchronizedCalendars|synScheduleStyle|synScheduleWhenImportSuccess' $WakeupJadx
-rg -n 'GetScheduleListBean|SyncScheduleBean|CalendarSynchronize' $WakeupJadx
+rg -n -i 'schedule|calendar|sync|synchronize|server|remote|import' $WakeupJadx
 ```
 
-### 9.1 ScheduleActivity 参考映射
+### 9.1 课表 Activity 调用链
 
-6.2.05 文件：
+在新版实际的课表 Activity 中，按 JADX 语义和 Smali 调用者逐项记录以下同步入口：启动时账户检查、远端课表读取、单课表同步、课表同步调度、登录预处理和日历同步。具体类名、方法名和处理结果只写入对应版本报告。
 
-```text
-smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleActivity.smali
-```
+### 9.2 课表 ViewModel 调用链
 
-| 混淆方法 | JADX 识别语义 | 处理 |
-| --- | --- | --- |
-| `o00000()` | 启动时账户检查/同步调度 | `return-void` |
-| `o00000oO()` | `preOptimizeLogin` | `return-void` |
-| `o0000O0O(I)` | `syncSingleScheduleAsync` | `return-void` |
-| `o000OO()` | `synchronizeSchedule` | `return-void` |
-| `o0O0O00()` | `getScheduleFromServer` | `return-void` |
-
-### 9.2 ScheduleViewModel 参考映射
-
-6.2.05 文件：
-
-```text
-smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleViewModel.smali
-```
-
-| 混淆方法 | JADX 识别语义 | 处理 |
-| --- | --- | --- |
-| `OoooOo0(TableConfig, Continuation)` | `selectScheduleOnServer` | 返回 Kotlin `Unit` |
-| `o00O0O(ZZ)` | `synchronizedCalendars` | `return-void` |
-| `o0OoOo0(I)` | `synScheduleStyle` | 关闭协程启动 |
-| `ooOO(I)` | `synScheduleWhenImportSuccess` | 关闭协程启动 |
+在新版 ViewModel 中，按返回类型和所有调用点确认远端课表选择、样式同步、导入后同步和日历同步入口。具体类名、方法名和处理结果只写入对应版本报告。
 
 协程/Job 返回值需要特别谨慎：
 
@@ -449,23 +359,9 @@ smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleViewModel.smali
 
 ## 10. “我的”页布局清理
 
-6.2.05 参考布局：
+在新版“我的”页布局中，通过文案、资源 ID 和点击监听定位登录、会员、收藏、课程、客服和网络推广区域。具体布局路径及控件清单写入对应版本报告。
 
-```text
-res/layout/fragment_mine_tab_content_view_new.xml
-```
-
-隐藏以下区域：
-
-```text
-mine_user_login_view
-ll_mine_vip_card
-bannerLayout
-ll_mine_tab_content_view_my_collection
-ll_mine_tab_content_view_vip
-ll_mine_tab_content_view_course
-ll_mine_tab_content_view_kf
-```
+隐藏确认属于精简范围的区域，并在版本报告中列出实际资源 ID。
 
 对应控件使用：
 
@@ -473,15 +369,12 @@ ll_mine_tab_content_view_kf
 android:visibility="gone"
 ```
 
-同时关闭：
+同时关闭账户数据加载和网络推广 Banner 事件入口，具体类名和方法名写入版本报告。
 
-- `MineNewUserLoginView.updateData()` 的账户数据加载。
-- `MineViewModel` 的 `loadBanner` 事件入口。
-
-原登录头部 `layout_mine_user_login_new.xml` 自带 `48dp` 顶部留白。隐藏登录控件后，应将这段间距转移到页面根容器：
+如果隐藏的登录头部承担顶部安全留白，应将等效间距转移到页面根容器：
 
 ```xml
-android:paddingTop="48.0dp"
+android:paddingTop="<preserved-inset>"
 ```
 
 并隐藏账户菜单对应的空分隔线，只保留可见菜单之间的分隔线。真机必须检查：
@@ -554,8 +447,7 @@ java -jar '.\apk_work\tools\apktool.jar' d -f $WakeupSigned -o $WakeupVerify
 ### 12.3 学习模块检查
 
 ```powershell
-rg -n 'AssistantFragment|aaa/learn|const-string.*"learn"|const-string.*"assistant"' `
-  $WakeupVerify -g 'ScheduleActivity.smali'
+rg -n -i 'learn|study|assistant|question|学习|助手|搜题' $WakeupVerify
 ```
 
 期望无输出。
@@ -579,7 +471,7 @@ $WakeupHasInternet
 另逐项确认：
 
 - 账户、会员、热启动广告 Activity 为 `enabled=false`。
-- `SchoolListActivity` 和 `LoginWebActivity` 未被禁用。
+- 高校列表和教务 Web 登录 Activity 未被禁用。
 - 包名未意外改变。
 - 新增广告厂商组件已被识别和处置。
 
@@ -601,6 +493,25 @@ $LASTEXITCODE
 ### 12.6 补丁范围审计
 
 将 `$WakeupOriginal` 与 `$WakeupVerify` 对照，重点确认应用自身代码的变化仅在预期文件。apktool/aapt2 可能重排 `attrs.xml` 枚举顺序或 DEX 内部细节，应判断语义差异，不能只看文件数量。
+
+### 12.7 软件更新与强制更新检查
+
+更新功能可能同时存在于主页启动协程、网络请求封装、弹窗展示器、“关于”页手动检查和服务端强制更新分支。先用稳定语义检索候选点，再对每个候选点沿调用者和返回值确认：
+
+```powershell
+rg -n -i 'force.?update|mandatory.?update|check.?update|update.?dialog|version.?check|download.?apk|install.?apk|升级|更新' `
+  $WakeupVerify -g '*.smali' -g '*.xml' -g 'AndroidManifest.xml'
+```
+
+验收要求：
+
+- 主页启动路径不再创建或等待 APK 更新检查任务。
+- 官方更新请求入口不再发起网络请求或下载 APK。
+- 普通更新和强制更新路径均不能到达 Dialog/Activity 展示或安装动作。
+- “关于”页版本号仍可静态显示，但不能发起版本请求或显示更新弹窗。
+- APK 更新模型和课表数据更新模型应按调用链区分，不能按名称批量删除。
+
+不能只删除更新布局或更新文案；必须在最终 APK 二次解包目录中核对调用入口、弹窗展示和强制分支的可达性，并把命令、字面输出和退出状态写入 `VERIFICATION.txt`。
 
 ## 13. 真机回归矩阵
 
@@ -643,6 +554,8 @@ $LASTEXITCODE
 - 使用上一版精简包安装后，当前版可直接覆盖升级。
 - 本地课表数据升级后仍存在。
 - 官方版因证书不同而无法直接覆盖属于预期行为。
+- 启动应用时不出现普通更新提醒或强制更新阻塞。
+- “关于”页版本号检查不发起更新弹窗或 APK 下载。
 
 ADB 参考：
 
@@ -715,6 +628,7 @@ ADB 参考：
 - [ ] 学习、助手底栏引用为零。
 - [ ] 账户 Activity 和 Action 已禁用。
 - [ ] 课表、日历云同步入口已禁用。
+- [ ] 软件更新提醒、自动检查、强制更新和手动版本检查已逐条审查。
 - [ ] `INTERNET` 权限保留。
 - [ ] 高校导入、解析目录通过对照检查。
 - [ ] “我的”页安全间距与分隔线正常。
@@ -723,32 +637,14 @@ ADB 参考：
 - [ ] apksigner 验证成功且证书连续。
 - [ ] 最终 APK 二次反编译检查成功。
 - [ ] 真机启动、本地课表和高校导入通过。
-- [ ] 最终 APK SHA-256 已更新到 README/Release。
+- [ ] 最终 APK SHA-256 已写入 `RELEASE_RECORDS.md`、逐版本报告和 Release。
+- [ ] `RELEASE_RECORDS.md`、Release Notes 和 `VERIFICATION.txt` 已同步。
+- [ ] 四个交付物（修改 APK、差异文件、验证记录、可执行回滚脚本）已生成并重新打开确认。
 - [ ] 私钥、密码、Token 和本地数据未进入仓库。
 
-## 17. 当前基线文件映射
+## 17. 历史报告与版本映射
 
-6.2.05 已修改的应用文件主要包括：
-
-```text
-AndroidManifest.xml
-res/layout/fragment_mine_tab_content_view_new.xml
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/actions/OooO0o.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/actions/OooOOOO.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/actions/SetGradeInfoAction.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/actions/ShowLoginAction.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/actions/UpdateUserInfoAction.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/resume/ResumeSplashActivity.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/utils/OooOOOO.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/utils/o000OOo0.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/utils/o00O0000.smali
-smali_classes5/com/suda/yzune/wakeupschedule/aaa/widget/MineNewUserLoginView.smali
-smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleActivity.smali
-smali_classes6/com/suda/yzune/wakeupschedule/schedule/ScheduleViewModel.smali
-smali_classes6/com/suda/yzune/wakeupschedule/viewmodel/MineViewModel.smali
-```
-
-此清单只用于快速定位。下一版若类移动、拆分或重命名，应以关键词、调用链和功能测试为准。
+历史类名、方法名、资源 ID、组件清单和统计结果只保存在 [RELEASE_RECORDS.md](./RELEASE_RECORDS.md) 及 `work/<version>/reports/`。它们用于复盘证据和选择检索词，不构成本通用流程的固定接口；新版本必须从官方 APK 重新定位并记录实际映射。
 
 ## 18. 工具清理与长期保留
 
@@ -785,3 +681,34 @@ apk_work/keys/wakeup-noads-local.jks
 ```
 
 尤其不要把整个 `apk_work/` 当作工具目录直接清理，否则会同时丢失签名密钥和升级基线。私钥及密码只存放在受保护的离线位置，不进入 Git 历史。
+
+## 19. 版本报告归档
+
+具体版本的输入输出哈希、类名、资源 ID、补丁映射、工具版本和验收结果只记录在 [RELEASE_RECORDS.md](./RELEASE_RECORDS.md) 及 `work/<version>/reports/`。本手册只规定报告应包含的字段和验证方法。
+
+### 19.1 新增广告组件
+
+每个版本报告都应列出 Manifest 新增组件、按调用用途分类的处理结论、禁用状态和权限/元数据差异。不要把单个版本的数量、厂商或组件名复制到本手册。
+
+### 19.2 代码映射
+
+每个版本报告都应记录广告入口、热启动页面、账户 Action、云同步调用链和返回值处理。定位以业务字符串、参数类型、返回类型、调用者和运行路径为依据；不得复制历史混淆文件名或寄存器位置。
+
+### 19.3 验收结果
+
+每个版本报告都应分别记录静态验收、构建/对齐/签名结果、导入目录对照、设备回归状态、更新与强制更新检查、四项交付物路径和回滚结果。只在版本报告中写入实际数量、类名、哈希和命令输出。
+
+### 19.4 非核心入口变更
+
+电脑端扫码、登录、会员、学习/助手和其他非核心入口的处理应按新版布局、Manifest 和调用链逐项确认。布局隐藏、调用短路和组件禁用的实际字段只写入对应版本报告；不得以旧版资源 ID 或方法名代替新版审查。
+
+### 19.5 软件更新提醒与强制更新
+
+对主页自动检查、服务端强制更新、更新弹窗、“关于”页手动检查和 APK 下载/安装动作逐条沿调用链审查。普通更新和强制更新均不得到达弹窗或安装动作；课表数据更新模型应按调用者区分。实际候选关键词、类名和处理结果只写入对应版本报告。
+
+## 20. 记录保管与后续迁移
+
+- `RELEASE_RECORDS.md` 是仓库内可公开提交的版本索引，必须随每个新构建增加版本、输入哈希、输出哈希、证书摘要、变更范围和验收状态。
+- `work/<version>/reports/` 是逐版本证据目录，应保留 `REPORT.md`、`VERIFICATION.txt`、相邻版本差异和可执行 `ROLLBACK.sh`；发布时将需要公开的报告和 APK 作为 Release 附件归档。
+- `base.apk`、原始/二次反编译目录、密钥库、密码、账号、Cookie、Token、教务数据和调试日志不得进入公开仓库。
+- 下一版迁移必须从官方 APK 新哈希开始，先建立未修改对照，再逐项复核广告、更新、扫码、账户、云同步和高校导入边界。旧版记录只提供目标和证据格式，不提供可盲套的二进制补丁。
