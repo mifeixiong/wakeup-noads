@@ -8,8 +8,8 @@
 | --- | --- | --- | --- | --- |
 | `6.3.0-r1` | 官方 `6.3.0` / `versionCode 510` | 去广告、学习/助手、账户/会员、云同步和“我的”页精简 | `8F7E9A8DCEDD6644FD24FEF658B682A3F8D4769EA72441596173E17C4CBEE4CF` | 已完成静态验收 |
 | `6.3.0-r2` | `6.3.0-r1` | 移除“我的”页电脑端扫码 / PC 插件登录 | `0A4588E5011F70BDFFDF9D27F00856109E8720F345FA04B4C669E2B35FAB2AD7` | 已完成静态验收 |
-| `6.3.0-r3` | `6.3.0-r2` | 移除普通更新提醒、自动更新检查、`forceUp` 强制更新和“关于”页版本弹窗 | `C5B6489D10639F2DBBA80FB641475607E62CCCE04624EA6B51CF2EE0584EE194` | 当前参考构建 |
-| `6.3.0-r4` | `6.3.0-r3` | 针对 [Issue #2](https://github.com/Lorikein12138/wakeup-noads/issues/2)，关闭导入时上传整页 HTML 的 `schedule_analysis` 网络上报，保留本地正方课表解析和写库 | `98E72CAD74C0F332DA0B642A4E42AEF47EADD659D519ABE13968F10AA68FDA29` | 构建、静态验收和 Release 已完成；真机回归待测 |
+| `6.3.0-r3` | `6.3.0-r2` | 移除普通更新提醒、自动更新检查、`forceUp` 强制更新和“关于”页版本弹窗 | `C5B6489D10639F2DBBA80FB641475607E62CCCE04624EA6B51CF2EE0584EE194` | 更新阻断基线 |
+| `6.3.0-r4` | `6.3.0-r3` | 针对 [Issue #2](https://github.com/Lorikein12138/wakeup-noads/issues/2)，关闭导入时上传整页 HTML 的 `schedule_analysis` 网络上报，保留本地正方课表解析和写库 | `98E72CAD74C0F332DA0B642A4E42AEF47EADD659D519ABE13968F10AA68FDA29` | 最新 Release；静态验收完成，真机回归待测 |
 
 共同信息：包名为 `com.suda.yzune.wakeupschedule`，最低 Android 为 API 24，精简版签名证书 SHA-256 为 `C723A71F393C421EE02496408601F195DA96DC1D5FD6D7432FDF46F33699F79A`。官方输入 APK SHA-256 为 `60CD13CE634F8CE53B510E9CEDAE2C3EE741A10229D63C7E83AC95C7E46D808D`。
 
