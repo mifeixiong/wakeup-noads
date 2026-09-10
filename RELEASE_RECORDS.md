@@ -22,14 +22,15 @@
 | `6.4.0-r1` | 官方 `6.4.0` / `versionCode 530` | 重新去广告；移除学习/账户/云同步/更新入口；移除导入分享口令、导出在线分享课表、导出菜单分享 App 和个人信息导出；关闭新版任意 URL WebView 入口 | `DBE9710581CFBD517F99ABABA1D3AAFFDEF2405B6BC040A5E53288721A6E7BA5` | 历史精简基线；已发现入口遗漏 |
 | `6.4.0-r1-legacy` | 官方 `6.4.0` / `versionCode 530` | 与 `6.4.0-r1` 同一精简范围的历史构建，仅用于保存既有证据，不作为当前修复基线 | `55872D055CCD8AF712B0095869D8667DFEBB68FE88953673186E2F6E40E720D5` | 已归档；禁止与当前 `6.4.0-r1` 混用 |
 | `6.4.0-r1-issue3` | 当前精简版 `6.4.0-r1` | 针对 [Issue #3](https://github.com/Lorikein12138/wakeup-noads/issues/3)，恢复教务动态解析请求所需的已保存应用会话只读读取；不恢复账户/云同步/分享入口，且不修改 6.3.0-r4 | `AC7BBF797B8948A712EA3EC78CEF4F5B042F0177002585C19BC0BC54E6731FB7` | 已发布构建；已发现入口遗漏，待校正版本替换 |
-| `6.4.0-r2` | 已发布 `6.4.0-r1` | 移除底部导航中的学习/表助手入口；拦截学习、助手、搜题结果及个人信息导出路由；隐藏远程“更多”页面中的个人信息导出菜单 | `0DA93FFDB568CCC56821114BFBB77BE8540BF1CBA9BB02E714C2FAE0F774C6C5`（对齐未签名候选） | 静态/构建前置验收通过；待签名、发布和真机回归 |
+| `6.4.0-r2` | 已发布 `6.4.0-r1` | 移除底部导航中的学习/表助手入口；拦截学习、助手、搜题结果及个人信息导出路由；隐藏远程“更多”页面中的个人信息导出菜单 | `BFE55C8737AB191070C1E6BB5D4A35E12E13BAC47FFE700BAFA0FD7C0F3C9D7B` | 静态/构建验收通过；真机回归待验证 |
 
 6.4.0 输入与签名信息：
 
 - 官方输入 APK：`work/6.4.0/input/base.apk`
 - 官方输入 SHA-256：`3E6D56EC0FC4EE9D23F9819D5B1DCF8BCC5B757079DEC47AF532F9B3CBB0744F`
 - 官方证书 SHA-256：`547726FCAAE0F52311BD9696C8D1714419EF66B64766A69C5818FC89B767EFED`
-- 精简版证书 SHA-256：`C723A71F393C421EE02496408601F195DA96DC1D5FD6D7432FDF46F33699F79A`
+- 6.4.0-r1 精简版证书 SHA-256：`C723A71F393C421EE02496408601F195DA96DC1D5FD6D7432FDF46F33699F79A`
+- 6.4.0-r2 精简版证书 SHA-256：`597F0B3427AD5AA993B526A72D03232B99A24F3B2B95195BC633F3D91D9205C2`
 
 6.4.0 的新版审查记录：
 
@@ -63,8 +64,9 @@
 - 根因：底部 Tab 列表和 CDN 远程 Hybrid 页面未纳入上一轮最终可达性复核；本地 Action 拦截不能自动移除远程页面中的菜单项。
 - 校正内容：删除底部 Tab 构造；在 Hybrid 路由层拦截学习、助手、搜题结果和个人信息导出页面；在远程“更多”页面加载后隐藏完整菜单行，并通过 DOM 变更监听覆盖异步渲染。
 - 边界：高校教务导入、课表解析、本地文件导入和 ICS 导出目录保持不变。
-- 候选产物：`work/issue-3/output/wakeup-noads-v6.4.0-r1-corrective2-aligned.apk`，计划发布文件名为 `wakeup-noads-v6.4.0-r2.apk`，SHA-256 为 `0DA93FFDB568CCC56821114BFBB77BE8540BF1CBA9BB02E714C2FAE0F774C6C5`；该文件尚未签名，不作为可安装 Release。
-- 验收：apktool 重建、zipalign 和二次解包通过；`schedule_import` 与 `schedule_parser` 共 908 个文件与已发布构建零差异；真机回归待签名后执行。
+- 最终产物：`work/issue-3/output/wakeup-noads-v6.4.0-r2.apk`，SHA-256 为 `BFE55C8737AB191070C1E6BB5D4A35E12E13BAC47FFE700BAFA0FD7C0F3C9D7B`；签名证书 SHA-256 为 `597F0B3427AD5AA993B526A72D03232B99A24F3B2B95195BC633F3D91D9205C2`。
+- 验收：apktool 重建、zipalign、APK v2/v3 签名和二次解包通过；`schedule_import` 与 `schedule_parser` 共 908 个文件与已发布构建零差异；真机回归待设备连接。
+- r2 使用新签名证书，不能覆盖安装 r1；后续精简版本应继续沿用 r2 证书。
 
 ## 当前验收
 
@@ -80,13 +82,13 @@
 - 回滚副本已恢复为 r2 哈希 `0A4588E5011F70BDFFDF9D27F00856109E8720F345FA04B4C669E2B35FAB2AD7`。
 - ADB 连接设备数为 0，真机启动、本地课表和高校导入回归仍需在连接设备后完成。
 
-6.4.0-r2 候选验收：
+6.4.0-r2 最终验收：
 
 - 147 个已识别广告组件全部为 `android:enabled="false"`，`android.permission.INTERNET` 保留。
 - 新版 FastAd 广告入口、热启动广告、更新/账户/云同步路径及新增任意 URL WebView 入口均已短路或禁用。
-- 导入分享口令、导出在线分享课表和导出菜单分享 App 的既有精简边界保持；已发布构建的底部学习入口和远程个人信息导出入口由后续校正构建处理。
-- `schedule_import`、`schedule_parser` 零差异；r1 基线 APK 已通过 apktool、zipalign、v2/v3 签名和二次解包，r2 候选已通过 apktool、zipalign 和二次解包。
-- 校正候选已通过独立二次解包和受保护目录差异检查；当前环境没有 `adb` 命令，真机回归待签名后执行。
+- 导入分享口令、导出在线分享课表、导出菜单分享 App、底部学习入口和远程个人信息导出入口均已移除或拦截；本地导入/ICS 导出和高校导入目录保留。
+- `schedule_import`、`schedule_parser` 零差异；r2 最终 APK 已通过 apktool、zipalign、v2/v3 签名和二次解包。
+- r2 最终 APK 已通过独立二次解包和受保护目录差异检查；当前环境没有 `adb` 命令，真机回归待设备连接。
 - 6.4.0-r1 Issue #3 修正版 `AC7BBF797B8948A712EA3EC78CEF4F5B042F0177002585C19BC0BC54E6731FB7` 已通过 apktool 重建、zipalign、APK v2/v3 签名和最终二次解包；`schedule_import`、`schedule_parser` 及动态解析请求相关文件与官方 6.4.0 零差异。
 - Issue #3 修复基线为当前 6.4.0-r1，未修改 6.3.0-r4；修正版回滚副本已恢复到 r1 基线哈希 `DBE9710581CFBD517F99ABABA1D3AAFFDEF2405B6BC040A5E53288721A6E7BA5`。
 - 由于当前环境没有 `adb` 和可用教务测试账号，Issue #3 的真实点击导入仍待设备回归；静态根因、修复范围、证据等级和新版广告/在线入口审查已记录。
