@@ -7,7 +7,7 @@ $androidNs = 'http://schemas.android.com/apk/res/android'
 
 # Known ad-component candidates. Revalidate the namespace rule against each new
 # Manifest before reuse and record any additions in that version's report.
-$adComponentPattern = '^com\.(?:fastad|kwad|qq\.e|byazt|bytedance\.sdk\.openadsdk|bytedance\.msdk|bytedance\.android\.openliveplugin|byted\.live\.lite|baidu\.mobads|baidu\.oauth\.sdkbqt|component\.patchad)(?:\.|\$)'
+$adComponentPattern = '^com\.(?:fastad|homework\.fastad|kwad|qq\.e|byazt|bytedance\.sdk\.openadsdk|bytedance\.msdk|bytedance\.android\.openliveplugin|byted\.live\.lite|baidu\.mobads|baidu\.oauth\.sdkbqt|component\.patchad)(?:\.|\$)'
 $explicitAdComponents = @(
     'com.suda.yzune.wakeupschedule.aaa.resume.ResumeSplashActivity',
     'com.bun.miitmdid.utilsforrequestpermission.PermissionTransparentActivity'
