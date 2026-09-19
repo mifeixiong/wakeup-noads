@@ -23,16 +23,63 @@ sys.path.insert(0, WORK)
 import axml_patch                      # noqa: E402
 import wakeup_jxust_fix as wjf         # noqa: E402
 
-BUY_LISTENERS = [
-    ('classes6', r'com\suda\yzune\wakeupschedule\schedule\o0Oo0oo.smali'),              # 夜间模式
-    ('classes6', r'com\suda\yzune\wakeupschedule\schedule\o0O0OO0.smali'),              # 简洁模式
-    ('classes6', r'com\suda\yzune\wakeupschedule\schedule_settings\o000oOoO.smali'),    # 课表设置-样式
-    ('classes5', r'com\suda\yzune\wakeupschedule\mine\o0O00000.smali'),                 # 会员页 去开通
-    ('classes5', r'com\suda\yzune\wakeupschedule\mine\o0oOOo.smali'),                   # 会员页 去购买
-    ('classes5', r'com\suda\yzune\wakeupschedule\mine\o0O000o0.smali'),                 # 会员页 去购买
-]
+BUY_LISTENERS = []
 
 NOOP = '    return-void\n'
+
+# 会员弹窗里「去开通 / 去购买」原本会跳到收银台（精简版里该页渲染成空白）。
+# 早期做法是把这个 onClick 改成空操作，但夜间模式那条路上「subscribe」回调里
+# 还带了 viewModel.o000OOo(false)（清掉“待启用”状态）——改成空操作后，
+# 点「去开通」会把界面留在已应用的夜间主题里（等于白看/白用了一次 VIP 外观），
+# 因此改成“与取消等价”：调用各自的 cancel 回调，效果 = 关闭弹窗 + 回退到已保存的主题，
+# 既不跳空白页，也不会启用任何 VIP 功能。
+REVERT_TO_CANCEL = [
+    # (文件, onClick 中新方法体, 说明)
+    ('classes6', r'com\suda\yzune\wakeupschedule\schedule\o0Oo0oo.smali',
+     '    iget-object v0, p0, Lcom/suda/yzune/wakeupschedule/schedule/o0Oo0oo;->o00OOO0O:'
+     'Lcom/suda/yzune/wakeupschedule/schedule/o0OO00O;\n'
+     '    invoke-static {v0, p1}, Lcom/suda/yzune/wakeupschedule/schedule/o0OO00O;->OooOo0O'
+     '(Lcom/suda/yzune/wakeupschedule/schedule/o0OO00O;Landroid/view/View;)V\n',
+     '夜间模式去开通→取消'),
+    ('classes6', r'com\suda\yzune\wakeupschedule\schedule\o0O0OO0.smali',
+     '    iget-object v0, p0, Lcom/suda/yzune/wakeupschedule/schedule/o0O0OO0;->o00OOO0O:'
+     'Lcom/suda/yzune/wakeupschedule/schedule/ScheduleFragment;\n'
+     '    invoke-static {v0, p1}, Lcom/suda/yzune/wakeupschedule/schedule/ScheduleFragment;->o0000o'
+     '(Lcom/suda/yzune/wakeupschedule/schedule/ScheduleFragment;Landroid/view/View;)V\n',
+     '简洁模式去开通→取消'),
+    ('classes6', r'com\suda\yzune\wakeupschedule\schedule_settings\o000oOoO.smali',
+     '    iget-object v0, p0, Lcom/suda/yzune/wakeupschedule/schedule_settings/o000oOoO;->o00OOO0O:'
+     'Lcom/suda/yzune/wakeupschedule/schedule_settings/MainStyleFragment;\n'
+     '    invoke-static {v0, p1}, Lcom/suda/yzune/wakeupschedule/schedule_settings/MainStyleFragment;'
+     '->OoooOO0(Lcom/suda/yzune/wakeupschedule/schedule_settings/MainStyleFragment;Landroid/view/View;)V\n',
+     '样式页去开通→取消'),
+]
+
+# 会员页自己的「去开通 / 去购买」只负责跳收银台，不涉及功能状态，保持空操作即可
+VIP_PAGE_NOOP = [
+    ('classes5', r'com\suda\yzune\wakeupschedule\mine\o0O00000.smali'),
+    ('classes5', r'com\suda\yzune\wakeupschedule\mine\o0oOOo.smali'),
+    ('classes5', r'com\suda\yzune\wakeupschedule\mine\o0O000o0.smali'),
+]
+
+
+def rewrite_onclick(path, body):
+    """Replace the body of onClick(View) with the given instructions."""
+    text = wjf.read(path)
+    m = wjf.method_span(text, r'(?m)^\.method public final onClick\(Landroid/view/View;\)V')
+    if not m:
+        return False
+    if body in text[m[0]:m[1]]:
+        return False
+    new_method = ('.method public final onClick(Landroid/view/View;)V\n'
+                  '    .registers 3\n'
+                  '\n'
+                  '    .line 1\n'
+                  + body +
+                  '\n'
+                  '    return-void\n')
+    wjf.write(path, text[:m[0]] + new_method + text[m[1]:])
+    return True
 
 # 说明：曾经尝试过把「夜间模式 / 简洁模式」两个磁贴从「…」面板里彻底移除
 # （把 o000O0Oo 里对应的两次 addView 改成 nop）。该改动已按用户要求回退，
@@ -97,11 +144,16 @@ def main():
     wjf.patch_import_banner(os.path.join(sch, 'SchedulePullDownLayout.smali'))
     wjf.patch_import_tip_dialog(os.path.join(sch, 'ScheduleFragment$handleIntent$1.smali'))
 
-    print('== VIP 弹窗不再跳转空白会员页（不改变 VIP 权益本身）')
+    print('== 会员弹窗「去开通」不再跳转空白会员页（改为与“取消”等价，不启用任何 VIP 功能）')
     by_short = {k.replace('.dex', ''): v for k, v in trees.items()}
-    for dex, rel in BUY_LISTENERS:
+    for dex, rel, body, label in REVERT_TO_CANCEL:
         p = os.path.join(by_short[dex], rel)
-
+        if not os.path.exists(p):
+            print('  [skip] missing', rel)
+            continue
+        print('  [%s] %s' % ('ok' if rewrite_onclick(p, body) else 'skip', label))
+    for dex, rel in VIP_PAGE_NOOP:
+        p = os.path.join(by_short[dex], rel)
         if not os.path.exists(p):
             print('  [skip] missing', rel)
             continue
