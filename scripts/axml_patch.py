@@ -1,10 +1,14 @@
 """Patch strings / int attributes in a binary AndroidManifest.xml (AXML).
 
+只重写字符串池与 32 位整型属性值，manifest 其余部分（资源映射、元素树）保持字节不变。
+
+审核加固（P2-5）：
+  * 每处修改都要求**恰好命中一次**，0 次或多次一律失败（可用 --allow-zero 显式放宽）；
+  * 返回结构化报告，供构建脚本汇总进 build-report.json；
+  * 提供 patch_manifest() 供其他脚本直接调用，CLI 只是薄封装。
+
 usage:
   python axml_patch.py <in.apk> <out-axml> [--set-string FROM TO] [--set-int ATTR VALUE]
-
-Only the string pool and in-place 32-bit attribute values are rewritten, so the
-rest of the manifest (resource map, element tree) stays byte-identical.
 """
 import argparse
 import struct
@@ -15,18 +19,23 @@ CHUNK_STRING_POOL = 0x0001
 CHUNK_XML = 0x0003
 
 
+class AxmlPatchError(RuntimeError):
+    pass
+
+
 def parse_pool(d, off):
     ctype, hsize, size = struct.unpack_from('<HHI', d, off)
-    assert ctype == CHUNK_STRING_POOL, hex(ctype)
+    if ctype != CHUNK_STRING_POOL:
+        raise AxmlPatchError(f'期望字符串池 chunk，实际 0x{ctype:04x}')
     count, style_count, flags, strings_start, styles_start = struct.unpack_from('<IIIII', d, off + 8)
     offsets = list(struct.unpack_from('<%dI' % count, d, off + hsize)) if count else []
-    assert not style_count or styles_start, 'styled pools are not supported'
+    if style_count and not styles_start:
+        raise AxmlPatchError('带样式数据的字符串池暂不支持')
     utf8 = bool(flags & (1 << 8))
     strings = []
     for o in offsets:
         p = off + strings_start + o
         if utf8:
-            # two lengths, then bytes
             n = d[p]
             p += 2 if (n & 0x80) else 1
             m = d[p]
@@ -44,7 +53,7 @@ def parse_pool(d, off):
 
 
 def build_pool(pool):
-    """Rebuild the string pool chunk with (possibly) modified strings."""
+    """按当前 strings 重建字符串池 chunk。"""
     strings = pool['strings']
     data = bytearray()
     offsets = []
@@ -69,16 +78,17 @@ def build_pool(pool):
 
 
 def find_attr_chunks(d, pool, attr_name):
-    """Yield (offset, data_offset) of every attribute named attr_name with a 32-bit int value."""
-    name_idx = pool['strings'].index(attr_name) if attr_name in pool['strings'] else -1
-    if name_idx < 0:
+    """返回该属性全部 32 位值的写入偏移（typedValue.data）。"""
+    if attr_name not in pool['strings']:
         return []
+    name_idx = pool['strings'].index(attr_name)
     res = []
     off = pool['off'] + pool['size']
-    while off < len(d):
+    while off + 8 <= len(d):
         ctype, hsize, size = struct.unpack_from('<HHI', d, off)
+        if size <= 0:
+            break
         if ctype == 0x0102:  # START_ELEMENT
-            # ResXMLTree_node (16B) then ResXMLTree_attrExt
             attr_start = struct.unpack_from('<H', d, off + 24)[0]
             attr_count = struct.unpack_from('<H', d, off + 28)[0]
             base = off + 16 + attr_start
@@ -86,57 +96,110 @@ def find_attr_chunks(d, pool, attr_name):
                 a = base + i * 20
                 ns, name, raw = struct.unpack_from('<III', d, a)
                 if name == name_idx:
-                    res.append(a + 16)  # typedValue.data
+                    res.append(a + 16)
         off += size
     return res
 
 
-def main():
+def read_manifest_strings(apk) -> list:
+    with zipfile.ZipFile(apk) as z:
+        d = z.read('AndroidManifest.xml')
+    ctype, hsize, _ = struct.unpack_from('<HHI', d, 0)
+    if ctype != CHUNK_XML:
+        raise AxmlPatchError('AndroidManifest.xml 不是二进制 XML')
+    return parse_pool(d, hsize)['strings']
+
+
+def read_attrs(apk, names) -> dict:
+    """读回指定属性的值（字符串型返回字符串，整型返回 int），用于产物自检。"""
+    with zipfile.ZipFile(apk) as z:
+        d = bytearray(z.read('AndroidManifest.xml'))
+    ctype, hsize, _ = struct.unpack_from('<HHI', d, 0)
+    pool = parse_pool(d, hsize)
+    out = {}
+    for name in names:
+        for data_off in find_attr_chunks(d, pool, name):
+            rec = data_off - 16
+            ns, nm, raw, tsize, res0, dtype, data = struct.unpack_from('<IIIHBBI', d, rec)
+            out[name] = pool['strings'][data] if dtype == 0x03 else data
+    return out
+
+
+def patch_manifest(in_apk, out_axml, set_string=(), set_int=(), *, expect_once=True,
+                   allow_zero=False) -> dict:
+    """改写 manifest 并返回 {'strings': [...], 'ints': [...], 'size': n}。
+
+    每处修改要求恰好命中一次；不满足时抛 AxmlPatchError（除非 allow_zero 且命中 0 次）。
+    """
+    with zipfile.ZipFile(in_apk) as z:
+        d = bytearray(z.read('AndroidManifest.xml'))
+
+    ctype, xml_hsize, xml_size = struct.unpack_from('<HHI', d, 0)
+    if ctype != CHUNK_XML:
+        raise AxmlPatchError('AndroidManifest.xml 不是二进制 XML')
+    pool = parse_pool(d, xml_hsize)
+
+    report = {'strings': [], 'ints': [], 'size': len(d), 'expect_once': bool(expect_once)}
+    changed = False
+
+    for frm, to in set_string:
+        hits = [i for i, s in enumerate(pool['strings']) if s == frm]
+        report['strings'].append({'from': frm, 'to': to, 'hits': len(hits)})
+        if len(hits) == 0 and not allow_zero:
+            raise AxmlPatchError(f'字符串 {frm!r} 在 manifest 字符串池里没有命中（期望 1 次）')
+        if expect_once and len(hits) > 1:
+            raise AxmlPatchError(f'字符串 {frm!r} 命中 {len(hits)} 次（期望 1 次），请改为更精确的值')
+        for i in hits:
+            pool['strings'][i] = to
+            changed = True
+
+    if changed:
+        new_pool = build_pool(pool)
+        rest = bytes(d[pool['off'] + pool['size']:])
+        d = bytearray(struct.pack('<HHI', CHUNK_XML, xml_hsize,
+                                  xml_hsize + len(new_pool) + len(rest)) + new_pool + rest)
+        pool = parse_pool(d, xml_hsize)
+        report['size'] = len(d)
+
+    for attr, val in set_int:
+        offsets = find_attr_chunks(d, pool, attr)
+        old_values = [struct.unpack_from('<I', d, o)[0] for o in offsets]
+        report['ints'].append({'attr': attr, 'value': int(val), 'hits': len(offsets),
+                               'old': old_values})
+        if len(offsets) == 0 and not allow_zero:
+            raise AxmlPatchError(f'属性 {attr!r} 在 manifest 里没有命中（期望 1 次）')
+        if expect_once and len(offsets) > 1:
+            raise AxmlPatchError(f'属性 {attr!r} 命中 {len(offsets)} 次（期望 1 次）')
+        for o in offsets:
+            struct.pack_into('<I', d, o, int(val))
+
+    with open(out_axml, 'wb') as f:
+        f.write(d)
+    return report
+
+
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('apk')
     ap.add_argument('out')
     ap.add_argument('--set-string', nargs=2, action='append', default=[])
     ap.add_argument('--set-int', nargs=2, action='append', default=[])
+    ap.add_argument('--allow-zero', action='store_true', help='允许某处修改命中 0 次')
+    ap.add_argument('--no-expect-once', action='store_true', help='不要求恰好一次（默认要求）')
     args = ap.parse_args()
-
-    with zipfile.ZipFile(args.apk) as z:
-        d = bytearray(z.read('AndroidManifest.xml'))
-
-    ctype, xml_hsize, xml_size = struct.unpack_from('<HHI', d, 0)
-    assert ctype == CHUNK_XML
-    pool = parse_pool(d, xml_hsize)
-    print(f'string pool: {pool["count"]} strings, utf8={pool["utf8"]}, size={pool["size"]}')
-
-    changed = False
-    for frm, to in args.set_string:
-        hits = [i for i, s in enumerate(pool['strings']) if s == frm]
-        print(f'--set-string {frm!r} -> {to!r}: {len(hits)} hit(s) at idx {hits}')
-        for i in hits:
-            pool['strings'][i] = to
-            changed = True
-
-    # rebuild pool first so offsets for the int patch stay valid (int patch is in place anyway)
-    if changed:
-        new_pool = build_pool(pool)
-        rest = bytes(d[pool['off'] + pool['size']:])
-        d = bytearray(struct.pack('<HHI', CHUNK_XML, xml_hsize, xml_hsize + len(new_pool) + len(rest))
-                      + new_pool + rest)
-        pool = parse_pool(d, xml_hsize)
-        print(f'new pool size {pool["size"]}, file size {len(d)}')
-
-    for attr, val in args.set_int:
-        for data_off in find_attr_chunks(d, pool, attr):
-            old = struct.unpack_from('<I', d, data_off)[0]
-            struct.pack_into('<I', d, data_off, int(val))
-            print(f'--set-int {attr}: {old} -> {val}')
-            changed = True
-
-    if not changed:
-        print('nothing changed')
-    with open(args.out, 'wb') as f:
-        f.write(d)
-    print('written:', args.out, len(d))
+    try:
+        rep = patch_manifest(args.apk, args.out, args.set_string, args.set_int,
+                             expect_once=not args.no_expect_once, allow_zero=args.allow_zero)
+    except AxmlPatchError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        return 1
+    for s in rep['strings']:
+        print(f"--set-string {s['from']!r} -> {s['to']!r}: 命中 {s['hits']} 次")
+    for i in rep['ints']:
+        print(f"--set-int {i['attr']}: {i['old']} -> {i['value']}（命中 {i['hits']} 次）")
+    print(f'written: {args.out} ({rep["size"]} bytes)')
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
